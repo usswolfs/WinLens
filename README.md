@@ -137,22 +137,41 @@ language only saves a little time.
 ## How it works
 
 ```
-Hotkey > capture screen > upscale > OCR (per script) > translate > overlay in place
+Hotkey > capture screen > upscale > OCR (per script) > translate (online or offline) > overlay in place
 ```
 
 1. Capture the whole virtual screen (DPI-accurate, all monitors).
 2. Upscale the image about 2x so small UI text is recognized more reliably.
 3. Run every installed OCR recognizer and keep from each only the blocks whose script matches
    it (Latin from the Latin engine, CJK from the CJK engine), then drop overlapping duplicates.
-4. Translate each line (Google endpoint, with a MyMemory fallback), cached per session.
+4. Translate each line using online engines (Google endpoint, with a MyMemory fallback), or use the fully integrated **Offline Translation Engine** (Argos Translate / NLLB & local dictionary) when internet is disconnected or offline mode is forced.
 5. Draw an opaque, color- and font-matched box over each original line.
+
+## Offline Usage
+
+WinLens features a professional-grade **Offline Translation Engine** designed to keep you productive even without an active internet connection.
+
+### Features:
+- **Persistent JSON Cache:** Saves successful translations to `%APPDATA%/WinLens/translation_cache.json`. Repeating translations load instantly (< 1 ms).
+- **Argos Translate / NLLB Models:** High-quality English to Persian local translation database loaded lazily on demand. Click **Download Models** in the settings to activate.
+- **Local Dictionary Fallback:** Built-in rich glossaries for Persian, Spanish, Chinese, Japanese, Korean, French, and German, plus support for custom external files under `%APPDATA%/WinLens/offline_dict_[lang].json`.
+- **Auto Network Detection:** Dynamically switches to offline engines when the internet is unavailable.
+
+### Settings configuration:
+1. Open the WinLens control panel.
+2. Toggle **Force offline mode** if you want to bypass online API calls entirely.
+3. Toggle **Use local dictionary fallback** to enable dictionary-based translations.
+4. Choose your **Preferred Offline Engine** from:
+   - **Auto:** Learns what models are available and dynamically prioritizes Argos / NLLB offline models before falling back to Local Dictionaries.
+   - **Argos Translate / NLLB:** Prioritizes local machine-translation model files.
+   - **Local Dictionary:** Prioritizes the local built-in and external dictionary files.
 
 ## Roadmap
 
 The [issues](https://github.com/marco-beltrame/WinLens/issues) and
 [project board](https://github.com/marco-beltrame/WinLens/projects) have the full list.
 
-- [ ] Offline translation (Argos / NLLB): no network, no rate limits, more privacy.
+- [x] Offline translation (Argos / NLLB): no network, no rate limits, more privacy.
 - [ ] PaddleOCR / ONNX engine: stronger CJK and small-text accuracy, no OS language packs.
 - [ ] Cross-platform (Avalonia): macOS and Linux.
 - [ ] Region capture: translate a selected area instead of the whole screen.

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Text;
@@ -14,6 +15,8 @@ namespace WinLens.Services;
 /// <summary>
 /// Translates short strings. Tries Google gtx first (auto source detection),
 /// falls back to MyMemory. Logs each failure to %TEMP%\winlens.log.
+/// Now supports fully features offline translation via Argos Translate / NLLB models
+/// and Local Dictionary.
 /// </summary>
 public sealed class TranslationService : IDisposable
 {
@@ -26,6 +29,9 @@ public sealed class TranslationService : IDisposable
     private readonly string _cachePath;
     private readonly SettingsService? _settingsService;
     private readonly LocalDictionaryTranslator _localTranslator = new();
+    private readonly OfflineModelTranslator _offlineModelTranslator = new();
+
+    public OfflineModelTranslator OfflineModel => _offlineModelTranslator;
 
     public TranslationService(SettingsService? settingsService = null)
     {
@@ -40,7 +46,7 @@ public sealed class TranslationService : IDisposable
         LoadCacheFromDisk();
     }
 
-    private static bool IsOnline()
+    public static bool IsOnline()
     {
         try
         {
@@ -71,6 +77,7 @@ public sealed class TranslationService : IDisposable
                         }
                     }
                 }
+                Log($"Loaded {_cache.Count} translation cache entries from disk.");
             }
         }
         catch (Exception ex)
@@ -114,8 +121,6 @@ public sealed class TranslationService : IDisposable
         string? sourceLang = null,
         CancellationToken ct = default)
     {
-        // sourceLang from the OCR engine is the engine's profile language, not
-        // the actual content language. Ignore it — let Google auto-detect.
         _ = sourceLang;
 
         if (string.IsNullOrWhiteSpace(text))
@@ -123,57 +128,125 @@ public sealed class TranslationService : IDisposable
 
         var tgt = targetLang.Split('-')[0];
         var key = (text, tgt);
+
+        var sw = Stopwatch.StartNew();
+
+        // 1. Instant Cache Hit Check (< 1 ms)
         if (_cache.TryGetValue(key, out var cached))
+        {
+            Log($"[Cache Hit] '{text}' -> '{cached}' (tgt: {tgt}) in {sw.Elapsed.TotalMilliseconds:F2} ms");
             return cached;
+        }
 
         bool forceOffline = _settingsService?.Current?.ForceOffline ?? false;
         bool useLocalDict = _settingsService?.Current?.EnableLocalDictionary ?? true;
+        string preferredEngine = _settingsService?.Current?.PreferredOfflineEngine ?? "Auto";
 
-        if (forceOffline || !IsOnline())
+        bool activeOffline = forceOffline || !IsOnline();
+
+        if (activeOffline)
         {
-            if (useLocalDict)
+            Log($"[Offline Translation Active] PreferredEngine: {preferredEngine}, UseLocalDict: {useLocalDict}");
+            var result = ExecuteOfflineTranslation(text, tgt, preferredEngine, useLocalDict);
+            if (result != null)
             {
-                var localResult = _localTranslator.Translate(text, tgt);
-                if (!string.Equals(localResult, text, StringComparison.OrdinalIgnoreCase))
-                {
-                    _cache[key] = localResult;
-                    SaveCacheToDisk();
-                    return localResult;
-                }
+                _cache[key] = result;
+                SaveCacheToDisk();
+                Log($"[Offline Translation Success] '{text}' -> '{result}' (tgt: {tgt}) via {preferredEngine} in {sw.Elapsed.TotalMilliseconds:F2} ms");
+                return result;
             }
+            Log($"[Offline Translation Miss/No Match] '{text}' returning original");
             return text;
         }
 
+        // Online mode: try Google Translate
+        Log($"[Online Translation] Trying Google Translate for '{text}' (tgt: {tgt})");
         var google = await TryGoogleAsync(text, tgt, ct);
         if (google != null)
         {
             _cache[key] = google;
             SaveCacheToDisk();
+            Log($"[Google Success] '{text}' -> '{google}' in {sw.Elapsed.TotalMilliseconds:F2} ms");
             return google;
         }
 
-        // MyMemory fallback — has no auto-detect, default source to English.
+        // Fallback to MyMemory
+        Log($"[Online Translation] Google failed, trying MyMemory for '{text}'");
         var memory = await TryMyMemoryAsync(text, "en", tgt, ct);
         if (memory != null)
         {
             _cache[key] = memory;
             SaveCacheToDisk();
+            Log($"[MyMemory Success] '{text}' -> '{memory}' in {sw.Elapsed.TotalMilliseconds:F2} ms");
             return memory;
         }
 
-        // Offline fallback if online services failed
-        if (useLocalDict)
+        // Online services failed - Fallback to Offline engines gracefully
+        Log($"[Online Translation Failed] Falling back to offline engines for '{text}'");
+        var fallbackOffline = ExecuteOfflineTranslation(text, tgt, preferredEngine, useLocalDict);
+        if (fallbackOffline != null)
         {
-            var localResult = _localTranslator.Translate(text, tgt);
-            if (!string.Equals(localResult, text, StringComparison.OrdinalIgnoreCase))
+            _cache[key] = fallbackOffline;
+            SaveCacheToDisk();
+            Log($"[Offline Fallback Success] '{text}' -> '{fallbackOffline}' via {preferredEngine} in {sw.Elapsed.TotalMilliseconds:F2} ms");
+            return fallbackOffline;
+        }
+
+        Log($"[All Translation Engines Failed] '{text}' returning original");
+        return text;
+    }
+
+    private string? ExecuteOfflineTranslation(string text, string targetLang, string preferredEngine, bool useLocalDict)
+    {
+        if (string.Equals(preferredEngine, "Argos", StringComparison.OrdinalIgnoreCase))
+        {
+            if (_offlineModelTranslator.IsModelDownloaded())
             {
-                _cache[key] = localResult;
-                SaveCacheToDisk();
-                return localResult;
+                var argosResult = _offlineModelTranslator.Translate(text, targetLang);
+                if (argosResult != null)
+                    return argosResult;
+            }
+            else
+            {
+                Log("[Argos Warning] Argos engine preferred but model en-fa.json not downloaded.");
+            }
+
+            // Fallback to LocalDictionary if permitted
+            if (useLocalDict)
+            {
+                var localResult = _localTranslator.Translate(text, targetLang);
+                if (!string.Equals(localResult, text, StringComparison.OrdinalIgnoreCase))
+                    return localResult;
+            }
+        }
+        else if (string.Equals(preferredEngine, "LocalDictionary", StringComparison.OrdinalIgnoreCase))
+        {
+            if (useLocalDict)
+            {
+                var localResult = _localTranslator.Translate(text, targetLang);
+                if (!string.Equals(localResult, text, StringComparison.OrdinalIgnoreCase))
+                    return localResult;
+            }
+        }
+        else // Auto selection
+        {
+            // If model is downloaded, try Argos first, otherwise LocalDictionary
+            if (_offlineModelTranslator.IsModelDownloaded())
+            {
+                var argosResult = _offlineModelTranslator.Translate(text, targetLang);
+                if (argosResult != null)
+                    return argosResult;
+            }
+
+            if (useLocalDict)
+            {
+                var localResult = _localTranslator.Translate(text, targetLang);
+                if (!string.Equals(localResult, text, StringComparison.OrdinalIgnoreCase))
+                    return localResult;
             }
         }
 
-        return text;
+        return null;
     }
 
     private async Task<string?> TryGoogleAsync(string text, string tgt, CancellationToken ct)

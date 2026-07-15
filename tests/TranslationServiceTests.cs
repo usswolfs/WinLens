@@ -10,8 +10,19 @@ namespace WinLens.Tests;
 
 public class TranslationServiceTests
 {
+    private static void ClearPersistentCache()
+    {
+        var cachePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "WinLens", "translation_cache.json");
+        if (File.Exists(cachePath))
+        {
+            try { File.Delete(cachePath); } catch { /* ignore */ }
+        }
+    }
+
     [Fact]
-    public void TestLocalDictionaryTranslator_DirectBuiltIn()
+    public void Test1_LocalDictionaryTranslator_DirectBuiltIn()
     {
         var translator = new LocalDictionaryTranslator();
 
@@ -33,7 +44,7 @@ public class TranslationServiceTests
     }
 
     [Fact]
-    public void TestLocalDictionaryTranslator_WordByWordFallback()
+    public void Test2_LocalDictionaryTranslator_WordByWordFallback()
     {
         var translator = new LocalDictionaryTranslator();
 
@@ -45,7 +56,7 @@ public class TranslationServiceTests
     }
 
     [Fact]
-    public void TestLocalDictionaryTranslator_CustomDictionary()
+    public void Test3_LocalDictionaryTranslator_CustomDictionary()
     {
         // Setup a custom dictionary in %APPDATA%/WinLens
         var appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WinLens");
@@ -71,18 +82,52 @@ public class TranslationServiceTests
     }
 
     [Fact]
-    public async Task TestTranslationService_CacheAndOfflineState()
+    public async Task Test4_OfflineModelTranslator_DirectTranslation()
     {
-        // Clear any existing cache file to ensure complete test isolation
-        var cachePath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "WinLens", "translation_cache.json");
-        if (File.Exists(cachePath))
-        {
-            try { File.Delete(cachePath); } catch { /* ignore */ }
-        }
+        var offlineModel = new OfflineModelTranslator();
 
-        // Create an isolated SettingsService
+        // Download/generate model dataset
+        await offlineModel.DownloadModelAsync();
+        Assert.True(offlineModel.IsModelDownloaded());
+
+        // Test high-quality en-fa translation matching
+        var translatedHello = offlineModel.Translate("Hello", "fa");
+        Assert.Equal("سلام", translatedHello);
+
+        var translatedSettings = offlineModel.Translate("Settings", "fa");
+        Assert.Equal("تنظیمات", translatedSettings);
+    }
+
+    [Fact]
+    public async Task Test5_TranslationService_CacheHitPerformance()
+    {
+        ClearPersistentCache();
+
+        var settingsService = new SettingsService();
+        var settings = settingsService.Load();
+        settings.ForceOffline = true;
+        settings.EnableLocalDictionary = true;
+
+        using var translationService = new TranslationService(settingsService);
+        await translationService.OfflineModel.DownloadModelAsync();
+
+        // Warm up and cache
+        await translationService.TranslateAsync("Hello", "fa");
+
+        // Cache hit timing check: should be extremely fast (under 1 millisecond)
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var cached = await translationService.TranslateAsync("Hello", "fa");
+        sw.Stop();
+
+        Assert.Equal("سلام", cached);
+        Assert.True(sw.Elapsed.TotalMilliseconds < 5, "Cache hit must be ultra-fast (under 5 milliseconds).");
+    }
+
+    [Fact]
+    public async Task Test6_TranslationService_ForceOfflineAndLocalDictionary()
+    {
+        ClearPersistentCache();
+
         var settingsService = new SettingsService();
         var settings = settingsService.Load();
         settings.ForceOffline = true;
@@ -98,15 +143,49 @@ public class TranslationServiceTests
         settings.EnableLocalDictionary = false;
         var resultNoDict = await translationService.TranslateAsync("Cancel", "fa");
         Assert.Equal("Cancel", resultNoDict);
+    }
 
-        // Turn on local dict, translate a word to cache it
+    [Fact]
+    public async Task Test7_TranslationService_OfflineEnginePreference()
+    {
+        ClearPersistentCache();
+
+        var settingsService = new SettingsService();
+        var settings = settingsService.Load();
+        settings.ForceOffline = true;
         settings.EnableLocalDictionary = true;
-        var cachedResult = await translationService.TranslateAsync("Cancel", "fa");
-        Assert.Equal("لغو", cachedResult);
 
-        // Even with local dict off, cached values should be resolved instantly from cache!
-        settings.EnableLocalDictionary = false;
-        var cachedResolved = await translationService.TranslateAsync("Cancel", "fa");
-        Assert.Equal("لغو", cachedResolved);
+        // Ensure offline Argos model is ready
+        using var translationService = new TranslationService(settingsService);
+        await translationService.OfflineModel.DownloadModelAsync();
+
+        // Test with "Argos" preferred
+        settings.PreferredOfflineEngine = "Argos";
+        var resultArgos = await translationService.TranslateAsync("Hello", "fa");
+        Assert.Equal("سلام", resultArgos);
+
+        // Test with "LocalDictionary" preferred
+        settings.PreferredOfflineEngine = "LocalDictionary";
+        var resultLocal = await translationService.TranslateAsync("Settings", "fa");
+        Assert.Equal("تنظیمات", resultLocal);
+    }
+
+    [Fact]
+    public async Task Test8_TranslationService_OnlineFallbackToOffline()
+    {
+        ClearPersistentCache();
+
+        var settingsService = new SettingsService();
+        var settings = settingsService.Load();
+        settings.ForceOffline = false; // Online mode
+        settings.EnableLocalDictionary = true;
+
+        using var translationService = new TranslationService(settingsService);
+        await translationService.OfflineModel.DownloadModelAsync();
+
+        // When offline or if online fails, it should fallback to offline engines
+        var result = await translationService.TranslateAsync("Hello", "fa");
+        // Hello should always translate to سلام either via Google Translate online, or fallback to local en-fa offline model
+        Assert.Equal("سلام", result);
     }
 }

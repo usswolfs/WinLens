@@ -18,4 +18,5 @@ public sealed class UserSettings
 
     public bool ForceOffline { get; set; } = false;
     public bool EnableLocalDictionary { get; set; } = true;
+    public string PreferredOfflineEngine { get; set; } = "Auto";
 }

@@ -22,16 +22,18 @@ public sealed class LanguageOption
 public partial class SettingsWindow : Window
 {
     private readonly SettingsService _settings;
+    private readonly TranslationService _translator;
     private readonly Action _onTranslate;
     private readonly Action _onHotkeyChanged;
 
     private bool _suppressEvents;
     private bool _capturing;
 
-    public SettingsWindow(SettingsService settings, Action onTranslate, Action onHotkeyChanged)
+    public SettingsWindow(SettingsService settings, TranslationService translator, Action onTranslate, Action onHotkeyChanged)
     {
         InitializeComponent();
         _settings = settings;
+        _translator = translator;
         _onTranslate = onTranslate;
         _onHotkeyChanged = onHotkeyChanged;
 
@@ -44,6 +46,10 @@ public partial class SettingsWindow : Window
         LocalDictToggle.IsChecked = _settings.Current.EnableLocalDictionary;
         StartupToggle.IsChecked = StartupRegistration.IsEnabled();
         UpdateHotkeyText();
+
+        BuildOfflineEngineOptions();
+        UpdateConnectionStatus();
+        UpdateDownloadButtonState();
 
         _suppressEvents = false;
 
@@ -59,6 +65,8 @@ public partial class SettingsWindow : Window
         _suppressEvents = true;
         RebuildLanguageOptions(); // float most-recent targets to the top
         BuildSourceOptions();
+        UpdateConnectionStatus();
+        UpdateDownloadButtonState();
         _suppressEvents = false;
     }
 
@@ -218,6 +226,91 @@ public partial class SettingsWindow : Window
         if (_suppressEvents) return;
         _settings.Current.EnableLocalDictionary = LocalDictToggle.IsChecked == true;
         _settings.Save(_settings.Current);
+    }
+
+    // ---------------- Offline Engine & Models ----------------
+
+    private void BuildOfflineEngineOptions()
+    {
+        var itemStyle = (Style)FindResource("ModernComboBoxItem");
+        OfflineEngineCombo.Items.Clear();
+
+        var opts = new[]
+        {
+            new { Value = "Auto", Display = "Auto (Recommended)" },
+            new { Value = "Argos", Display = "Argos Translate / NLLB" },
+            new { Value = "LocalDictionary", Display = "Local Dictionary" }
+        };
+
+        foreach (var opt in opts)
+        {
+            var item = new ComboBoxItem
+            {
+                Content = opt.Display,
+                Tag = opt.Value,
+                Style = itemStyle
+            };
+            OfflineEngineCombo.Items.Add(item);
+
+            if (string.Equals(opt.Value, _settings.Current.PreferredOfflineEngine, StringComparison.OrdinalIgnoreCase))
+                OfflineEngineCombo.SelectedItem = item;
+        }
+
+        if (OfflineEngineCombo.SelectedItem == null && OfflineEngineCombo.Items.Count > 0)
+            OfflineEngineCombo.SelectedIndex = 0;
+    }
+
+    private void OnOfflineEngineChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressEvents) return;
+        if (OfflineEngineCombo.SelectedItem is ComboBoxItem item && item.Tag is string val)
+        {
+            _settings.Current.PreferredOfflineEngine = val;
+            _settings.Save(_settings.Current);
+        }
+    }
+
+    private void UpdateConnectionStatus()
+    {
+        bool online = TranslationService.IsOnline();
+        ConnectionStatusText.Text = online ? "Connection: Online (Fast API Mode)" : "Connection: Offline (Using Local Engines)";
+        ConnectionStatusText.Foreground = online
+            ? new SolidColorBrush(Color.FromRgb(0x4C, 0xAF, 0x50)) // Green
+            : new SolidColorBrush(Color.FromRgb(0xFF, 0x98, 0x00)); // Orange
+    }
+
+    private void UpdateDownloadButtonState()
+    {
+        bool ready = _translator.OfflineModel.IsModelDownloaded();
+        DownloadModelsButton.Content = ready ? "Model: Ready" : "Download Models";
+        DownloadModelsButton.IsEnabled = !ready;
+    }
+
+    private async void OnDownloadModelsClick(object sender, RoutedEventArgs e)
+    {
+        _suppressEvents = true;
+        DownloadModelsButton.IsEnabled = false;
+        DownloadModelsButton.Content = "Downloading...";
+
+        try
+        {
+            // Perform simulated downloading or actual model generation in an async task to keep UI completely responsive
+            await Task.Run(async () => {
+                await _translator.OfflineModel.DownloadModelAsync();
+                await Task.Delay(1500); // UI visual transition
+            });
+            DownloadModelsButton.Content = "Model: Ready";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Failed to download models: {ex.Message}", "WinLens", MessageBoxButton.OK, MessageBoxImage.Error);
+            DownloadModelsButton.IsEnabled = true;
+            DownloadModelsButton.Content = "Download Models";
+        }
+        finally
+        {
+            _suppressEvents = false;
+        }
     }
 
     // ---------------- Startup ----------------

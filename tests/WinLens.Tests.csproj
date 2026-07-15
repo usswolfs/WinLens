@@ -16,6 +16,7 @@
   <ItemGroup>
     <Compile Include="..\src\Services\LocalDictionaryTranslator.cs" Link="LocalDictionaryTranslator.cs" />
     <Compile Include="..\src\Services\TranslationService.cs" Link="TranslationService.cs" />
+    <Compile Include="..\src\Services\OfflineModelTranslator.cs" Link="OfflineModelTranslator.cs" />
     <Compile Include="..\src\Services\SettingsService.cs" Link="SettingsService.cs" />
     <Compile Include="..\src\Models\UserSettings.cs" Link="UserSettings.cs" />
   </ItemGroup>

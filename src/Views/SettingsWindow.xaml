@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="WinLens"
         Icon="/assets/winlens.ico"
-        Width="440" Height="780"
+        Width="440" Height="860"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
@@ -131,6 +131,27 @@
                     <CheckBox x:Name="LocalDictToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}"
                               VerticalAlignment="Center"
                               Checked="OnLocalDictToggled" Unchecked="OnLocalDictToggled"/>
+                </Grid>
+
+                <!-- Preferred Offline Engine -->
+                <TextBlock Text="PREFERRED OFFLINE ENGINE" Style="{StaticResource LabelText}" Margin="2,16,0,8"/>
+                <ComboBox x:Name="OfflineEngineCombo" Style="{StaticResource ModernComboBox}"
+                          SelectionChanged="OnOfflineEngineChanged"/>
+
+                <!-- Offline Models and Status -->
+                <Grid Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <TextBlock Text="Offline Translation Models" Foreground="{StaticResource TextBrush}"
+                                   FontSize="13" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="ConnectionStatusText" Text="Connection: Detecting..."
+                                   Style="{StaticResource CaptionText}" Margin="0,2,0,0"/>
+                    </StackPanel>
+                    <Button x:Name="DownloadModelsButton" Grid.Column="1" Style="{StaticResource SecondaryButton}"
+                            Content="Download Models" Click="OnDownloadModelsClick" Padding="12,0"/>
                 </Grid>
 
                 <!-- Launch at startup -->

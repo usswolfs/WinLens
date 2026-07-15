@@ -83,6 +83,7 @@ public partial class MainWindow : Window, IDisposable
         {
             _settingsWindow = new SettingsWindow(
                 _settings,
+                _translator,
                 onTranslate: () => _ = RunCaptureAndTranslateAsync(),
                 onHotkeyChanged: RegisterHotkey);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
