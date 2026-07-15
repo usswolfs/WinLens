@@ -40,6 +40,8 @@ public partial class SettingsWindow : Window
         RebuildLanguageOptions();
         BuildSourceOptions();
 
+        OfflineToggle.IsChecked = _settings.Current.ForceOffline;
+        LocalDictToggle.IsChecked = _settings.Current.EnableLocalDictionary;
         StartupToggle.IsChecked = StartupRegistration.IsEnabled();
         UpdateHotkeyText();
 
@@ -200,6 +202,22 @@ public partial class SettingsWindow : Window
         if (s.HotkeyModifiers.HasFlag(HotkeyModifiers.Win))     parts.Add("Win");
         parts.Add(s.HotkeyKey.ToString());
         HotkeyText.Text = string.Join("  +  ", parts);
+    }
+
+    // ---------------- Offline / Local Dictionary ----------------
+
+    private void OnOfflineToggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressEvents) return;
+        _settings.Current.ForceOffline = OfflineToggle.IsChecked == true;
+        _settings.Save(_settings.Current);
+    }
+
+    private void OnLocalDictToggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressEvents) return;
+        _settings.Current.EnableLocalDictionary = LocalDictToggle.IsChecked == true;
+        _settings.Save(_settings.Current);
     }
 
     // ---------------- Startup ----------------
