@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Text;
@@ -22,13 +23,89 @@ public sealed class TranslationService : IDisposable
     private readonly HttpClient _http;
     private readonly ConcurrentDictionary<(string text, string tgt), string> _cache = new();
     private readonly string _logPath;
+    private readonly string _cachePath;
+    private readonly SettingsService? _settingsService;
+    private readonly LocalDictionaryTranslator _localTranslator = new();
 
-    public TranslationService()
+    public TranslationService(SettingsService? settingsService = null)
     {
+        _settingsService = settingsService;
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         _http.DefaultRequestHeaders.UserAgent.ParseAdd(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) WinLens/1.0");
         _logPath = Path.Combine(Path.GetTempPath(), "winlens.log");
+        _cachePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "WinLens", "translation_cache.json");
+        LoadCacheFromDisk();
+    }
+
+    private static bool IsOnline()
+    {
+        try
+        {
+            return System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void LoadCacheFromDisk()
+    {
+        try
+        {
+            if (File.Exists(_cachePath))
+            {
+                var json = File.ReadAllText(_cachePath, Encoding.UTF8);
+                var deserialized = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+                if (deserialized != null)
+                {
+                    foreach (var kvp in deserialized)
+                    {
+                        var parts = kvp.Key.Split(new[] { "||" }, StringSplitOptions.None);
+                        if (parts.Length == 2)
+                        {
+                            _cache[(parts[0], parts[1])] = kvp.Value;
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"Failed to load cache from disk: {ex.Message}");
+        }
+    }
+
+    private readonly object _cacheFileLock = new();
+
+    private void SaveCacheToDisk()
+    {
+        lock (_cacheFileLock)
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(_cachePath);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+
+                var serialized = new Dictionary<string, string>();
+                foreach (var kvp in _cache)
+                {
+                    var keyStr = $"{kvp.Key.text}||{kvp.Key.tgt}";
+                    serialized[keyStr] = kvp.Value;
+                }
+
+                var json = JsonSerializer.Serialize(serialized);
+                File.WriteAllText(_cachePath, json, Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                Log($"Failed to save cache to disk: {ex.Message}");
+            }
+        }
     }
 
     public async Task<string> TranslateAsync(
@@ -49,10 +126,29 @@ public sealed class TranslationService : IDisposable
         if (_cache.TryGetValue(key, out var cached))
             return cached;
 
+        bool forceOffline = _settingsService?.Current?.ForceOffline ?? false;
+        bool useLocalDict = _settingsService?.Current?.EnableLocalDictionary ?? true;
+
+        if (forceOffline || !IsOnline())
+        {
+            if (useLocalDict)
+            {
+                var localResult = _localTranslator.Translate(text, tgt);
+                if (!string.Equals(localResult, text, StringComparison.OrdinalIgnoreCase))
+                {
+                    _cache[key] = localResult;
+                    SaveCacheToDisk();
+                    return localResult;
+                }
+            }
+            return text;
+        }
+
         var google = await TryGoogleAsync(text, tgt, ct);
         if (google != null)
         {
             _cache[key] = google;
+            SaveCacheToDisk();
             return google;
         }
 
@@ -61,7 +157,20 @@ public sealed class TranslationService : IDisposable
         if (memory != null)
         {
             _cache[key] = memory;
+            SaveCacheToDisk();
             return memory;
+        }
+
+        // Offline fallback if online services failed
+        if (useLocalDict)
+        {
+            var localResult = _localTranslator.Translate(text, tgt);
+            if (!string.Equals(localResult, text, StringComparison.OrdinalIgnoreCase))
+            {
+                _cache[key] = localResult;
+                SaveCacheToDisk();
+                return localResult;
+            }
         }
 
         return text;

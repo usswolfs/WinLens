@@ -15,4 +15,7 @@ public sealed class UserSettings
 
     public HotkeyModifiers HotkeyModifiers { get; set; } = HotkeyModifiers.Control | HotkeyModifiers.Alt;
     public Key HotkeyKey { get; set; } = Key.T;
+
+    public bool ForceOffline { get; set; } = false;
+    public bool EnableLocalDictionary { get; set; } = true;
 }

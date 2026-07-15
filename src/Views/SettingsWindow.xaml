@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="WinLens"
         Icon="/assets/winlens.ico"
-        Width="440" Height="694"
+        Width="440" Height="780"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
@@ -99,8 +99,42 @@
                             Content="Change" Margin="10,0,0,0" Click="OnChangeHotkey"/>
                 </Grid>
 
-                <!-- Launch at startup -->
+                <!-- Force Offline Mode -->
                 <Grid Margin="0,22,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <TextBlock Text="Force offline mode" Foreground="{StaticResource TextBrush}"
+                                   FontSize="13" FontWeight="SemiBold"/>
+                        <TextBlock Text="Translate using the offline cache &amp; local dictionaries."
+                                   Style="{StaticResource CaptionText}" Margin="0,2,0,0"/>
+                    </StackPanel>
+                    <CheckBox x:Name="OfflineToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}"
+                              VerticalAlignment="Center"
+                              Checked="OnOfflineToggled" Unchecked="OnOfflineToggled"/>
+                </Grid>
+
+                <!-- Use Local Dictionary Fallback -->
+                <Grid Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <TextBlock Text="Use local dictionary fallback" Foreground="{StaticResource TextBrush}"
+                                   FontSize="13" FontWeight="SemiBold"/>
+                        <TextBlock Text="Use offline dictionary translation for new words."
+                                   Style="{StaticResource CaptionText}" Margin="0,2,0,0"/>
+                    </StackPanel>
+                    <CheckBox x:Name="LocalDictToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}"
+                              VerticalAlignment="Center"
+                              Checked="OnLocalDictToggled" Unchecked="OnLocalDictToggled"/>
+                </Grid>
+
+                <!-- Launch at startup -->
+                <Grid Margin="0,16,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>

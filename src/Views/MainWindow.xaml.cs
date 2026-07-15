@@ -11,7 +11,7 @@ public partial class MainWindow : Window, IDisposable
 {
     private readonly SettingsService _settings = new();
     private readonly OcrService _ocr = new();
-    private readonly TranslationService _translator = new();
+    private readonly TranslationService _translator;
     private GlobalHotkey? _hotkey;
     private SettingsWindow? _settingsWindow;
 
@@ -21,6 +21,7 @@ public partial class MainWindow : Window, IDisposable
     {
         InitializeComponent();
         _settings.Load();
+        _translator = new TranslationService(_settings);
         Loaded += OnLoaded;
     }
 
